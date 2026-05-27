@@ -1,0 +1,22 @@
+{
+  "name": "suno2newapi",
+  "version": "1.0.0",
+  "description": "Protocol bridge between new-api Suno routes and SunoAPI.org",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/upstream.js && node --check src/mapper.js && node --check src/store.js"
+  },
+  "keywords": [
+    "suno",
+    "new-api",
+    "proxy",
+    "bridge"
+  ],
+  "license": "MIT"
+}
