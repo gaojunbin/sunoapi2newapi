@@ -55,14 +55,15 @@ function taskIdFromFetchPath(pathname) {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
-async function storeSubmittedTask(store, taskId, action, payload, upstreamBody) {
+async function storeSubmittedTaskWithMeta(store, taskId, action, payload, upstreamBody, meta = {}) {
   if (!taskId) return;
   await store.upsert(taskId, {
     action,
     request: payload,
     upstream_submit_response: upstreamBody,
     submit_time: Math.floor(Date.now() / 1000),
-    last_status: 'SUBMITTED'
+    last_status: 'SUBMITTED',
+    ...meta
   });
 }
 
@@ -74,9 +75,16 @@ async function handleCompatSubmit(req, res, context, action) {
 
   let upstreamPath;
   let payload;
+  let submitMeta = {};
   if (action === 'MUSIC') {
     upstreamPath = '/api/v1/generate';
     payload = legacyMusicToSuno(body, callbackUrl, config);
+    submitMeta = {
+      user_request: body,
+      requested_title: typeof body.title === 'string' ? body.title.trim() : '',
+      requested_gpt_description_prompt:
+        typeof body.gpt_description_prompt === 'string' ? body.gpt_description_prompt.trim() : ''
+    };
   } else if (action === 'LYRICS') {
     upstreamPath = '/api/v1/lyrics';
     payload = legacyLyricsToSuno(body, callbackUrl);
@@ -99,7 +107,7 @@ async function handleCompatSubmit(req, res, context, action) {
     throw new HttpError(502, 'upstream response did not include taskId', upstreamResponse.json);
   }
 
-  await storeSubmittedTask(store, taskId, action, payload, upstreamResponse.json);
+  await storeSubmittedTaskWithMeta(store, taskId, action, payload, upstreamResponse.json, submitMeta);
   sendJson(res, 200, toNewApiSubmitResponse(taskId, apiMessage(upstreamResponse.json, 'success')));
 }
 
@@ -199,7 +207,12 @@ async function handleNativeGenerate(req, res, context, action) {
 
   const taskId = extractTaskId(upstreamResponse.json);
   if (taskId && isUpstreamSuccess(upstreamResponse.json)) {
-    await storeSubmittedTask(store, taskId, action, payload, upstreamResponse.json);
+    await storeSubmittedTaskWithMeta(store, taskId, action, payload, upstreamResponse.json, {
+      user_request: body,
+      requested_title: typeof body.title === 'string' ? body.title.trim() : '',
+      requested_gpt_description_prompt:
+        typeof body.gpt_description_prompt === 'string' ? body.gpt_description_prompt.trim() : ''
+    });
   }
   sendJson(res, upstreamResponse.status, upstreamResponse.json || { raw: upstreamResponse.text });
 }

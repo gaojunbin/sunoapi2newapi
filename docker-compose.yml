@@ -4,7 +4,7 @@ services:
     container_name: suno2newapi
     restart: unless-stopped
     environment:
-      PORT: ${PORT:-3000}
+      PORT: 3000
       DATA_DIR: /data
       SUNO_API_BASE_URL: ${SUNO_API_BASE_URL:-https://api.sunoapi.org}
       SUNO_API_KEY: ${SUNO_API_KEY:-}

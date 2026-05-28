@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { createServer } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { mapMusicRecordToNewApi } from '../src/mapper.js';
 
 async function readJson(req) {
   let raw = '';
@@ -72,21 +73,37 @@ async function createMockSuno() {
         msg: 'success',
         data: {
           taskId: url.searchParams.get('taskId'),
-          status: 'SUCCESS',
+          status: 'FIRST_SUCCESS',
           response: {
             taskId: url.searchParams.get('taskId'),
             sunoData: [
               {
                 id: 'clip-1',
+                status: 'streaming',
                 audioUrl: 'https://cdn.example/music.mp3',
                 streamAudioUrl: 'https://cdn.example/music',
                 imageUrl: 'https://cdn.example/cover.jpeg',
-                prompt: 'calm piano',
+                prompt: '[Verse]\nCalm piano by the sea',
+                timedLyrics: '[00:01.00]Calm piano by the sea',
                 modelName: 'chirp-v4',
-                title: 'Calm',
+                title: 'Calm AI',
                 tags: 'Classical',
                 createTime: '2026-01-01 00:00:00',
                 duration: 180
+              },
+              {
+                id: 'clip-2',
+                status: 'processing',
+                audioUrl: 'https://cdn.example/music-2.mp3',
+                streamAudioUrl: 'https://cdn.example/music-2',
+                imageUrl: 'https://cdn.example/cover-2.jpeg',
+                prompt: '[Verse]\nSecond calm piano by the sea',
+                timedLyrics: '[00:01.00]Second calm piano by the sea',
+                modelName: 'chirp-v4',
+                title: 'Calm AI 2',
+                tags: 'Classical',
+                createTime: '2026-01-01 00:00:01',
+                duration: 181
               }
             ]
           }
@@ -147,14 +164,15 @@ async function createMockSuno() {
   return { server, baseUrl, calls };
 }
 
-async function createBridge(upstreamBaseUrl) {
+async function createBridge(upstreamBaseUrl, env = {}) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'suno2newapi-'));
   const config = loadConfig({
     PORT: '0',
     DATA_DIR: tempDir,
     SUNO_API_BASE_URL: upstreamBaseUrl,
     DEFAULT_MUSIC_MODEL: 'V4_5ALL',
-    UPSTREAM_TIMEOUT_MS: '5000'
+    UPSTREAM_TIMEOUT_MS: '5000',
+    ...env
   });
   const server = createServer({ config });
   const baseUrl = await listen(server);
@@ -174,6 +192,7 @@ test('new-api MUSIC submit and fetch are translated to SunoAPI.org', async () =>
       },
       body: JSON.stringify({
         prompt: 'calm piano',
+        title: 'Manual Calm',
         make_instrumental: true,
         mv: 'chirp-v4-5-all'
       })
@@ -207,14 +226,127 @@ test('new-api MUSIC submit and fetch are translated to SunoAPI.org', async () =>
     assert.equal(fetched.data[0].task_id, 'music-task-1');
     assert.equal(fetched.data[0].action, 'MUSIC');
     assert.equal(fetched.data[0].status, 'SUCCESS');
-    assert.equal(fetched.data[0].data[0].audio_url, 'https://cdn.example/music.mp3');
+    assert.equal(fetched.data[0].finish_time > 0, true);
+    assert.equal(fetched.data[0].data.length, 2);
+    const clip = fetched.data[0].data[0];
+    assert.equal(clip.audio_url, 'https://cdn.example/music.mp3');
+    assert.equal(clip.status, 'complete');
+    assert.equal(clip.title, 'Manual Calm');
+    assert.equal(clip.metadata.title, 'Manual Calm');
+    assert.equal(clip.lyrics, '[Verse]\nCalm piano by the sea');
+    assert.equal(clip.metadata.prompt, '[Verse]\nCalm piano by the sea');
+    assert.equal(clip.gpt_description_prompt, 'calm piano');
+    assert.equal(clip.metadata.gpt_description_prompt, 'calm piano');
+    assert.equal(clip.timed_lyrics, '[00:01.00]Calm piano by the sea');
+    assert.equal(clip.metadata.timed_lyrics, '[00:01.00]Calm piano by the sea');
+    assert.equal(fetched.data[0].data[1].status, 'complete');
+    assert.equal(fetched.data[0].data[1].title, 'Manual Calm');
 
     const stored = JSON.parse(await fs.readFile(path.join(bridge.tempDir, 'tasks.json'), 'utf8'));
     assert.equal(stored['music-task-1'].action, 'MUSIC');
+    assert.equal(stored['music-task-1'].requested_title, 'Manual Calm');
   } finally {
     await close(bridge.server);
     await close(mock.server);
   }
+});
+
+test('music callback fetch exposes new-api Suno lyrics compatibility fields', async () => {
+  const mock = await createMockSuno();
+  const bridge = await createBridge(mock.baseUrl);
+  try {
+    const submit = await fetch(`${bridge.baseUrl}/suno/submit/MUSIC`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-key',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        gpt_description_prompt: 'bright city pop',
+        mv: 'chirp-v4'
+      })
+    });
+    assert.equal(submit.status, 200);
+    assert.equal((await submit.json()).data, 'music-task-1');
+
+    const callback = await fetch(`${bridge.baseUrl}/callbacks/sunoapi`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        code: 200,
+        data: {
+          callbackType: 'complete',
+          task_id: 'music-task-1',
+          data: [
+            {
+              id: 'clip-callback',
+              audio_url: 'https://cdn.example/callback.mp3',
+              prompt: '[Chorus]\nBright city lights',
+              timed_lyrics: '[00:10.00]Bright city lights',
+              title: 'Lights',
+              tags: 'Pop'
+            },
+            {
+              id: 'clip-no-timed-lyrics',
+              prompt: '[Verse]\nNo timestamps here'
+            }
+          ]
+        }
+      })
+    });
+    assert.equal(callback.status, 200);
+
+    const fetchResp = await fetch(`${bridge.baseUrl}/suno/fetch/music-task-1`, {
+      headers: {
+        authorization: 'Bearer test-key'
+      }
+    });
+    assert.equal(fetchResp.status, 200);
+    const fetched = await fetchResp.json();
+    const clip = fetched.data.data[0];
+    assert.equal(clip.lyrics, '[Chorus]\nBright city lights');
+    assert.equal(clip.metadata.prompt, '[Chorus]\nBright city lights');
+    assert.equal(clip.gpt_description_prompt, 'bright city pop');
+    assert.equal(clip.metadata.gpt_description_prompt, 'bright city pop');
+    assert.equal(clip.timed_lyrics, '[00:10.00]Bright city lights');
+    assert.equal(clip.metadata.timed_lyrics, '[00:10.00]Bright city lights');
+    assert.equal(fetched.data.data[1].timed_lyrics, '');
+  } finally {
+    await close(bridge.server);
+    await close(mock.server);
+  }
+});
+
+test('FIRST_SUCCESS with one playable clip does not finish the whole music task', () => {
+  const mapped = mapMusicRecordToNewApi(
+    {
+      code: 200,
+      msg: 'success',
+      data: {
+        taskId: 'music-task-1',
+        status: 'FIRST_SUCCESS',
+        response: {
+          sunoData: [
+            {
+              id: 'clip-1',
+              status: 'streaming',
+              audioUrl: 'https://cdn.example/music.mp3',
+              title: '清晨窗边'
+            }
+          ]
+        }
+      }
+    },
+    {
+      task_id: 'music-task-1',
+      submit_time: 1,
+      requested_title: '清晨'
+    }
+  );
+
+  assert.equal(mapped.status, 'IN_PROGRESS');
+  assert.equal(mapped.data[0].status, 'complete');
+  assert.equal(mapped.data[0].title, '清晨');
 });
 
 test('generic native proxy preserves non-JSON request body path', async () => {

@@ -1,6 +1,6 @@
 # suno2newapi
 
-`suno2newapi` is a small protocol bridge for using [SunoAPI.org](https://docs.sunoapi.org/suno-api/generate-music) from an unchanged new-api deployment.
+`suno2newapi` is a small protocol bridge for using SunoAPI.org from an unchanged new-api deployment.
 
 It exposes the Suno routes that new-api already knows how to call:
 
@@ -11,7 +11,7 @@ POST /suno/fetch
 GET  /suno/fetch/:id
 ```
 
-Internally it translates those requests to SunoAPI.org:
+It translates those requests to SunoAPI.org:
 
 ```text
 POST /api/v1/generate
@@ -58,6 +58,8 @@ POST http://YOUR_BRIDGE_HOST:3000/suno/fetch
 
 The bridge will forward to SunoAPI.org with the key from new-api's `Authorization: Bearer ...` header.
 
+If new-api is also running in Docker, do not use `127.0.0.1` as the bridge host in new-api. Use a host address reachable from the new-api container, or put both containers on the same Docker network and use the bridge container name.
+
 ## Legacy new-api Request Mapping
 
 For `POST /suno/submit/MUSIC`, legacy fields are mapped as follows:
@@ -71,6 +73,8 @@ mv                               -> model
 ```
 
 If `style` and `title` are both present, the bridge uses `customMode: true`; otherwise it uses `customMode: false`.
+
+For chatall compatibility, a manually supplied `title` is preserved in returned clips even when SunoAPI.org generates a different title. The bridge also returns lyrics in `metadata.prompt`, `lyrics`, `gpt_description_prompt`, and `timed_lyrics`, and marks playable clips as `complete` so chatall can finish loading once all clips have audio.
 
 Default model mapping:
 
@@ -138,11 +142,13 @@ The tests use a local mock SunoAPI.org server and do not require a real API key.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PORT` | `3000` | HTTP listen port |
-| `SUNO_API_BASE_URL` | `https://api.sunoapi.org` | Upstream base URL |
+| `PORT` | `3000` | HTTP listen port. In Docker Compose the container listens on `3000`; `.env` `PORT` controls the published host port. |
+| `SUNO_API_BASE_URL` | `https://api.sunoapi.org` | SunoAPI.org upstream base URL |
 | `SUNO_API_KEY` | empty | Fallback key when request has no `Authorization` header |
 | `CALLBACK_URL` | derived from request host | Callback URL sent to SunoAPI.org |
 | `DATA_DIR` | `/data` in Docker | Persistent task metadata directory |
 | `DEFAULT_MUSIC_MODEL` | `V4_5ALL` | Fallback SunoAPI.org model |
 | `UPSTREAM_TIMEOUT_MS` | `60000` | Upstream request timeout |
 | `MODEL_MAP_JSON` | empty | Optional JSON override for legacy `mv` mapping |
+
+When using the Docker Compose bind mount, the container fixes `/data` ownership at startup and then runs the Node process as the unprivileged `app` user.
