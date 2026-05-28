@@ -7,6 +7,7 @@ const DEFAULT_MODEL_MAP = {
   'chirp-v4-5': 'V4_5',
   'chirp-v4-5-plus': 'V4_5PLUS',
   'chirp-v4-5-all': 'V4_5ALL',
+  'chirp-fenix': 'V5_5',
   'v4': 'V4',
   'v4_5': 'V4_5',
   'v4_5plus': 'V4_5PLUS',

@@ -85,6 +85,7 @@ chirp-v4         -> V4
 chirp-v4-5       -> V4_5
 chirp-v4-5-plus  -> V4_5PLUS
 chirp-v4-5-all   -> V4_5ALL
+chirp-fenix      -> V5_5
 ```
 
 Unknown legacy `mv` values use `DEFAULT_MUSIC_MODEL`, defaulting to `V4_5ALL`.

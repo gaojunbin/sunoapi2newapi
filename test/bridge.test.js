@@ -251,6 +251,31 @@ test('new-api MUSIC submit and fetch are translated to SunoAPI.org', async () =>
   }
 });
 
+test('legacy chirp-fenix model maps to SunoAPI V5_5', async () => {
+  const mock = await createMockSuno();
+  const bridge = await createBridge(mock.baseUrl);
+  try {
+    const submit = await fetch(`${bridge.baseUrl}/suno/submit/MUSIC`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-key',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        prompt: 'cinematic synthwave',
+        mv: 'chirp-fenix'
+      })
+    });
+    assert.equal(submit.status, 200);
+
+    const upstreamSubmit = mock.calls.find((call) => call.path === '/api/v1/generate');
+    assert.equal(upstreamSubmit.body.model, 'V5_5');
+  } finally {
+    await close(bridge.server);
+    await close(mock.server);
+  }
+});
+
 test('music callback fetch exposes new-api Suno lyrics compatibility fields', async () => {
   const mock = await createMockSuno();
   const bridge = await createBridge(mock.baseUrl);
